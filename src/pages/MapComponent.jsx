@@ -84,9 +84,7 @@ const EnhancedMapComponent = () => {
         if (status === window.google.maps.places.PlacesServiceStatus.OK) {
           setLandmarks(results);
           announceLandmarks(results);
-        } else {
-          //console.error("Error fetching landmarks:", status);
-        }
+        } 
       }
     );
   };
