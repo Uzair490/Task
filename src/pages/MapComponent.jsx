@@ -85,7 +85,7 @@ const EnhancedMapComponent = () => {
           setLandmarks(results);
           announceLandmarks(results);
         } else {
-          console.error("Error fetching landmarks:", status);
+          //console.error("Error fetching landmarks:", status);
         }
       }
     );
