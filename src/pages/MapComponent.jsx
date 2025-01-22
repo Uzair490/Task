@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useEffect, useRef } from "react";
 import {
   GoogleMap,
@@ -8,13 +11,13 @@ import {
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyDQmPq0HH1XTcSNa55xUP748V1Vv4hhK1w";
 
-const MapComponent = () => {
+const EnhancedMapComponent = () => {
   const [map, setMap] = useState(null);
   const [directionsResponse, setDirectionsResponse] = useState(null);
   const [currentLocation, setCurrentLocation] = useState(null);
-  const [destination, setDestination] = useState("");
+  const [startLocation, setStartLocation] = useState(null);
+  const [destination, setDestination] = useState(null);
   const [landmarks, setLandmarks] = useState([]);
-
   const speech = useRef(new SpeechSynthesisUtterance());
 
   useEffect(() => {
@@ -23,28 +26,53 @@ const MapComponent = () => {
         const { latitude, longitude } = position.coords;
         setCurrentLocation({ lat: latitude, lng: longitude });
       },
-      (error) => console.error(error),
+      (error) => console.error("Geolocation Error:", error),
       { enableHighAccuracy: true }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  const calculateRoute = async () => {
-    if (!currentLocation || !destination) return;
-
-    const directionsService = new window.google.maps.DirectionsService();
-    const results = await directionsService.route({
-      origin: currentLocation,
-      destination,
-      travelMode: window.google.maps.TravelMode.DRIVING,
+  const geocodeAddress = (address) => {
+    return new Promise((resolve, reject) => {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ address }, (results, status) => {
+        if (status === "OK") {
+          const location = results[0].geometry.location;
+          resolve({ lat: location.lat(), lng: location.lng() });
+        } else {
+          reject(`Geocode failed: ${status}`);
+        }
+      });
     });
-
-    setDirectionsResponse(results);
-    findNearbyLandmarks(currentLocation);
   };
 
-  const findNearbyLandmarks = async (location) => {
+  const calculateRoute = async () => {
+    if (!startLocation || !destination) {
+     
+      return;
+    }
+
+    try {
+      const directionsService = new window.google.maps.DirectionsService();
+      const results = await directionsService.route({
+        origin: startLocation,
+        destination: destination,
+        travelMode: window.google.maps.TravelMode.DRIVING,
+      });
+      setDirectionsResponse(results);
+      findNearbyLandmarks(currentLocation);
+    } catch (error) {
+      console.error("Error calculating route:", error);
+    }
+  };
+
+  const findNearbyLandmarks = (location) => {
+    if (!map || !location || !location.lat || !location.lng) {
+      console.error("Invalid map or location:", { map, location });
+      return;
+    }
+
     const placesService = new window.google.maps.places.PlacesService(map);
     placesService.nearbySearch(
       {
@@ -55,79 +83,71 @@ const MapComponent = () => {
       (results, status) => {
         if (status === window.google.maps.places.PlacesServiceStatus.OK) {
           setLandmarks(results);
-          if (results.length > 0) {
-            announceLandmarks(results);
-          }
+          announceLandmarks(results);
+        } else {
+          console.error("Error fetching landmarks:", status);
         }
       }
     );
   };
 
   const announceLandmarks = (landmarks) => {
+    if (!landmarks || landmarks.length === 0) {
+      console.warn("No landmarks to announce.");
+      return;
+    }
+
     const names = landmarks.map((place) => place.name).join(", ");
-    if (names) {
-      speech.current.text = `Nearby landmarks: ${names}`;
-      window.speechSynthesis.speak(speech.current);
-    }
+    speech.current.text = `Nearby landmarks are: ${names}`;
+    window.speechSynthesis.speak(speech.current);
   };
-
-  const announceArrival = () => {
-    if (destination && currentLocation) {
-      const distance =
-        window.google.maps.geometry.spherical.computeDistanceBetween(
-          new window.google.maps.LatLng(currentLocation),
-          new window.google.maps.LatLng(destination)
-        );
-
-      if (distance < 50) {
-        speech.current.text = "You have arrived at your destination.";
-        window.speechSynthesis.speak(speech.current);
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (currentLocation && destination) {
-      calculateRoute();
-      announceArrival();
-    }
-  }, [currentLocation]);
 
   return (
-    <LoadScript googleMapsApiKey={GOOGLE_MAPS_API_KEY}>
-      <div className="p-4">
-        <div className="flex gap-4 mb-4">
-          <input
-            type="text"
-            className="p-2 border rounded"
-            placeholder="Enter destination"
-            value={destination}
-            onChange={(e) => setDestination(e.target.value)}
-          />
-          <button
-            className="px-4 py-2 bg-blue-500 text-white rounded"
-            onClick={calculateRoute}
-          >
-            Get Route
-          </button>
-        </div>
-        <GoogleMap
-          center={currentLocation || { lat: 0, lng: 0 }}
-          zoom={15}
-          mapContainerStyle={{ width: "100%", height: "500px" }}
-          onLoad={(map) => setMap(map)}
-        >
-          {currentLocation && <Marker position={currentLocation} />}
-          {destination && <Marker position={destination} />}
-          {directionsResponse && (
-            <DirectionsRenderer directions={directionsResponse} />
-          )}
-        </GoogleMap>
+    <LoadScript googleMapsApiKey={GOOGLE_MAPS_API_KEY} libraries={["places"]}>
+      <GoogleMap
+        onLoad={(map) => setMap(map)}
+        center={currentLocation || { lat: 0, lng: 0 }}
+        zoom={15}
+        mapContainerStyle={{ width: "100%", height: "400px" }}
+      >
+        {startLocation && <Marker position={startLocation} />}
+        {destination && <Marker position={destination} />}
+        {currentLocation && <Marker position={currentLocation} />}
+        {directionsResponse && <DirectionsRenderer directions={directionsResponse} />}
+      </GoogleMap>
+      <div style={{ marginTop: "10px" }}>
+        <input
+          type="text"
+          placeholder="Enter start location"
+          className="border p-2 mr-2"
+          onBlur={async (e) => {
+            try {
+              const location = await geocodeAddress(e.target.value);
+              setStartLocation(location);
+            } catch (error) {
+              console.error(error);
+            }
+          }}
+        />
+        <input
+          type="text"
+          placeholder="Enter destination"
+     className="border p-2 mr-2"
+          onBlur={async (e) => {
+            try {
+              const location = await geocodeAddress(e.target.value);
+              setDestination(location);
+            } catch (error) {
+              console.error(error);
+            }
+          }}
+        />
+        <button   className="border p-2 mr-2" onClick={calculateRoute} style={{ padding: "10px 20px", cursor: "pointer" }}>
+          Calculate Route
+        </button>
       </div>
     </LoadScript>
   );
 };
 
-export default MapComponent;
-
-// test
+export default EnhancedMapComponent;
